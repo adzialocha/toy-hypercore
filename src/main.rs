@@ -1,15 +1,23 @@
 extern crate base64;
 extern crate blake2_rfc;
+extern crate byteorder;
 extern crate ed25519_dalek;
 extern crate futures;
 extern crate getopts;
 extern crate hex;
 extern crate rand;
 extern crate sha2;
+extern crate tokio;
+extern crate tokio_core;
+extern crate trust_dns;
+extern crate trust_dns_proto;
 
 pub mod crypto;
+pub mod discovery;
 
-use futures::{Future, Async};
+use discovery::{Discovery, DiscoveryPeer};
+use futures::{Future, Stream, Async};
+use std::collections::HashMap;
 use tokio_core::reactor::{Core, Handle};
 
 const DAT_URL_PROTOCOL: &str = "dat://";
@@ -17,6 +25,38 @@ const DAT_URL_PROTOCOL: &str = "dat://";
 fn run(handle: Handle, discovery_key_full: &[u8], token: String)
     -> impl Future<Item=(), Error=()>
 {
+    let mut peers: HashMap<String, DiscoveryPeer> = HashMap::new();
+
+    // @TODO Get correct port from listening TCP socket
+    let port = 12345;
+
+    // Discovery interesting peers
+    let discovery = Discovery::new(
+        handle.clone(), discovery_key_full, port, token);
+
+    let handle_clone = handle.clone();
+
+    let discovery_stream = discovery.find_peers()
+        .then(move |peer_stream| {
+            let find_peers = peer_stream.unwrap()
+                .for_each(move |peer| {
+                    if !peers.contains_key(&peer.token()) {
+                        println!("New peer: {}, {}, {}",
+                                 peer.addr(), peer.port(), peer.token());
+
+                        peers.insert(peer.token(), peer);
+                    }
+
+                    Ok(())
+                });
+
+            handle_clone.spawn(find_peers.then(|_| { Ok(()) }));
+
+            Ok(())
+        });
+
+    handle.spawn(discovery_stream);
+
     // Never end this future
     futures::future::poll_fn(|| Ok(Async::NotReady))
 }
