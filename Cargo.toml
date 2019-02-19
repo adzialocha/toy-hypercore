@@ -1,0 +1,7 @@
+[package]
+name = "toy-hypercore"
+version = "0.1.0"
+authors = ["Andreas Dzialocha <kontakt@andreasdzialocha.com>"]
+edition = "2018"
+
+[dependencies]
