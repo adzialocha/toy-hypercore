@@ -5,3 +5,10 @@ authors = ["Andreas Dzialocha <kontakt@andreasdzialocha.com>"]
 edition = "2018"
 
 [dependencies]
+base64 = "0.10.1"
+blake2-rfc = "0.2.18"
+ed25519-dalek = "0.9.1"
+getopts = "0.2.18"
+hex = "0.3.2"
+rand = "0.6.5"
+sha2 = "0.8.0"
