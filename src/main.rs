@@ -30,7 +30,7 @@ fn run(handle: Handle, discovery_key_full: &[u8], token: String)
     // @TODO Get correct port from listening TCP socket
     let port = 12345;
 
-    // Discovery interesting peers
+    // Discover interesting peers
     let discovery = Discovery::new(
         handle.clone(), discovery_key_full, port, token);
 
