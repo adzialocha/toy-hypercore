@@ -9,8 +9,8 @@ use futures::{Future, Stream};
 use tokio::timer::Interval;
 use tokio_core::reactor::Handle;
 use trust_dns::op::{Message, MessageType, Query};
-use trust_dns::rr::{Name, RecordType, Record, RData, rdata};
-use trust_dns_proto::multicast::{MdnsStream, MdnsQueryType};
+use trust_dns::rr::{rdata, Name, RData, Record, RecordType};
+use trust_dns_proto::multicast::{MdnsQueryType, MdnsStream};
 use trust_dns_proto::xfer::SerialMessage;
 
 const NAME_SUFFIX: &str = "dat.local";
@@ -25,19 +25,13 @@ pub struct Discovery {
 }
 
 impl Discovery {
-    pub fn new(
-        handle: Handle,
-        discovery_key_full: &[u8],
-        port: u16,
-        token: String,
-    ) -> Discovery {
+    pub fn new(handle: Handle, discovery_key_full: &[u8], port: u16, token: String) -> Discovery {
         // Shorten and convert hash to 40 hex chars
         let discovery_key_hex = hex::encode(discovery_key_full);
         let discovery_key = discovery_key_hex[..40].to_string();
 
         // Set DNS name to identify what we are interested in
-        let name = Name::from_ascii(
-            &format!("{}.{}", discovery_key, NAME_SUFFIX)).unwrap();
+        let name = Name::from_ascii(&format!("{}.{}", discovery_key, NAME_SUFFIX)).unwrap();
 
         // Define own peer node
         let peer = DiscoveryPeer {
@@ -46,41 +40,39 @@ impl Discovery {
             token,
         };
 
-        Discovery {
-            handle,
-            name,
-            peer,
-        }
+        Discovery { handle, name, peer }
     }
 
-    pub fn find_peers(&self)
-        -> impl Future<Item=impl Stream<Item=DiscoveryPeer, Error=Error>, Error=Error>
-    {
+    pub fn find_peers(
+        &self,
+    ) -> impl Future<Item = impl Stream<Item = DiscoveryPeer, Error = Error>, Error = Error> {
         // Create multicast DNS Stream
-        let multicast_addr = SocketAddr::new(
-            MDNS_ADDRESS.parse().unwrap(), MDNS_PORT);
+        let multicast_addr = SocketAddr::new(MDNS_ADDRESS.parse().unwrap(), MDNS_PORT);
 
         let (mdns_stream, mdns_stream_sender) = MdnsStream::new(
-            multicast_addr, MdnsQueryType::OneShotJoin, Some(1), None, None);
+            multicast_addr,
+            MdnsQueryType::OneShotJoin,
+            Some(1),
+            None,
+            None,
+        );
 
         let question_query = self.create_mdns_question().to_vec().unwrap();
         let mdns_stream_sender_clone = mdns_stream_sender.clone();
 
         // Send queries to find new peers every 60 seconds
-        let question_interval = Interval::new_interval(Duration::from_millis(60000))
-            .for_each(move |_| {
-                let question_message = SerialMessage::new(
-                    question_query.clone(),
-                    multicast_addr
-                );
+        let question_interval =
+            Interval::new_interval(Duration::from_millis(60000)).for_each(move |_| {
+                let question_message = SerialMessage::new(question_query.clone(), multicast_addr);
 
                 mdns_stream_sender_clone
-                    .unbounded_send(question_message).unwrap();
+                    .unbounded_send(question_message)
+                    .unwrap();
 
                 Ok(())
             });
 
-        self.handle.spawn(question_interval.then(|_| { Ok(()) }));
+        self.handle.spawn(question_interval.then(|_| Ok(())));
 
         // Read incoming queries, find interested peers
         // and return them as consumable futures stream
@@ -104,22 +96,21 @@ impl Discovery {
                             } else {
                                 None
                             }
-                        },
-                        Err(_) => None
+                        }
+                        Err(_) => None,
                     }
                 })
                 .filter_map(move |message| {
                     match message.message_type() {
                         MessageType::Query => {
-                            let answer_message = SerialMessage::new(
-                                answer_response.clone(), multicast_addr);
+                            let answer_message =
+                                SerialMessage::new(answer_response.clone(), multicast_addr);
 
                             // Respond with answer to query
-                            mdns_stream_sender
-                                .unbounded_send(answer_message).unwrap();
+                            mdns_stream_sender.unbounded_send(answer_message).unwrap();
 
                             None
-                        },
+                        }
                         MessageType::Response => {
                             // Check if we got response with required fields
                             match DiscoveryPeer::from_message(&message) {
@@ -130,7 +121,7 @@ impl Discovery {
                                     } else {
                                         None
                                     }
-                                },
+                                }
                                 None => None,
                             }
                         }
@@ -194,15 +185,13 @@ impl DiscoveryPeer {
 
     fn from_message(message: &Message) -> Option<DiscoveryPeer> {
         // Check TXT records of message for needed fields
-        message
-            .answers()
-            .iter()
-            .find_map(|rr| if let RData::TXT(ref rdata) = *rr.rdata() {
+        message.answers().iter().find_map(|rr| {
+            if let RData::TXT(ref rdata) = *rr.rdata() {
                 // Append only "token" and "peers" fields
                 let fields: Vec<Vec<&str>> = rdata
                     .iter()
                     .map(|d| str::from_utf8(d).unwrap())
-                    .map(|s| s.splitn(2, "=").collect())
+                    .map(|s| s.splitn(2, '=').collect())
                     .filter_map(|t: Vec<&str>| {
                         if t.len() == 2 && (t[0] == "token" || t[0] == "peers") {
                             Some(t)
@@ -217,28 +206,22 @@ impl DiscoveryPeer {
                     let mut map: HashMap<String, String> = HashMap::with_capacity(2);
 
                     for field in fields {
-                        map.insert(
-                            String::from(field[0]),
-                            String::from(field[1])
-                        );
+                        map.insert(String::from(field[0]), String::from(field[1]));
                     }
 
-                    let token = map.get("token").unwrap().to_owned();
-                    let peers = map.get("peers").unwrap();
+                    let token = map["token"].clone();
+                    let peers = map["peers"].clone();
 
                     let (addr, port) = DiscoveryPeer::decode_peers_field(&peers);
 
-                    Some(DiscoveryPeer {
-                        port,
-                        addr,
-                        token,
-                    })
+                    Some(DiscoveryPeer { port, addr, token })
                 } else {
                     None
                 }
             } else {
                 None
-            })
+            }
+        })
     }
 
     fn encode_peers_field(&self) -> String {
@@ -260,7 +243,7 @@ impl DiscoveryPeer {
             reader.read_u8().unwrap(),
             reader.read_u8().unwrap(),
             reader.read_u8().unwrap(),
-            reader.read_u8().unwrap()
+            reader.read_u8().unwrap(),
         );
 
         let port = reader.read_u16::<BigEndian>().unwrap();

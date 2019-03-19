@@ -1,8 +1,8 @@
 use blake2_rfc::blake2b::{blake2b, Blake2bResult};
 use ed25519_dalek::Keypair;
-use rand::Rng;
 use rand::rngs::OsRng;
-use sha2::{Sha256, Sha512, Digest};
+use rand::Rng;
+use sha2::{Digest, Sha256, Sha512};
 
 const DISCOVERY_KEY_NAME: &[u8] = b"hypercore";
 

@@ -16,44 +16,49 @@ pub mod crypto;
 pub mod discovery;
 
 use discovery::{Discovery, DiscoveryPeer};
-use futures::{Future, Stream, Async};
+use futures::{Async, Future, Stream};
+
 use std::collections::HashMap;
+
 use tokio_core::reactor::{Core, Handle};
 
 const DAT_URL_PROTOCOL: &str = "dat://";
 
-fn run(handle: Handle, discovery_key_full: &[u8], token: String)
-    -> impl Future<Item=(), Error=()>
-{
+fn run(
+    handle: Handle,
+    discovery_key_full: &[u8],
+    token: String,
+) -> impl Future<Item = (), Error = ()> {
     let mut peers: HashMap<String, DiscoveryPeer> = HashMap::new();
 
     // @TODO Get correct port from listening TCP socket
     let port = 12345;
 
     // Discover interesting peers
-    let discovery = Discovery::new(
-        handle.clone(), discovery_key_full, port, token);
+    let discovery = Discovery::new(handle.clone(), discovery_key_full, port, token);
 
     let handle_clone = handle.clone();
 
-    let discovery_stream = discovery.find_peers()
-        .then(move |peer_stream| {
-            let find_peers = peer_stream.unwrap()
-                .for_each(move |peer| {
-                    if !peers.contains_key(&peer.token()) {
-                        println!("New peer: {}, {}, {}",
-                                 peer.addr(), peer.port(), peer.token());
+    let discovery_stream = discovery.find_peers().then(move |peer_stream| {
+        let find_peers = peer_stream.unwrap().for_each(move |peer| {
+            if !peers.contains_key(&peer.token()) {
+                println!(
+                    "New peer: {}, {}, {}",
+                    peer.addr(),
+                    peer.port(),
+                    peer.token()
+                );
 
-                        peers.insert(peer.token(), peer);
-                    }
-
-                    Ok(())
-                });
-
-            handle_clone.spawn(find_peers.then(|_| { Ok(()) }));
+                peers.insert(peer.token(), peer);
+            }
 
             Ok(())
         });
+
+        handle_clone.spawn(find_peers.then(|_| Ok(())));
+
+        Ok(())
+    });
 
     handle.spawn(discovery_stream);
 
@@ -79,7 +84,9 @@ fn main() {
     let decoded_key;
 
     let public_key: &[u8] = if is_cloning {
-        let clone_public_key = matches.opt_str("clone").unwrap()
+        let clone_public_key = matches
+            .opt_str("clone")
+            .unwrap()
             .replace(DAT_URL_PROTOCOL, "");
 
         decoded_key = hex::decode(clone_public_key).unwrap();
